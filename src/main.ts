@@ -2,11 +2,16 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import helmet from 'helmet';
+
 import compression from 'compression';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Enable raw WebSocket adapter for Twilio Media Streams
+  app.useWebSocketAdapter(new WsAdapter(app));
 
   app.use(helmet());
   app.use(compression());
@@ -25,25 +30,19 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle('API Documentation')
-    .setDescription('Swagger api documentation')
+    .setTitle('Mbaza API')
+    .setDescription('Mbaza AI-Powered Citizen Call Center API')
     .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Enter JWT token',
-        in: 'header',
-      },
-      'access-token',
-    )
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
 
-  await app.listen(process.env.PORT ?? 3000);
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+  console.log(`🚀 Mbaza API running on port ${port}`);
+  console.log(`📞 Voice webhook: POST /api/v1/voice/incoming-call`);
+  console.log(`🔌 WebSocket stream: ws://localhost:${port}/audio-stream`);
 }
 bootstrap().catch((e) => console.error(e));
