@@ -9,6 +9,7 @@ import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { AudioConversionService } from './audio-conversion.service';
 import { CallersService } from '../callers/callers.service';
 import { CasesService } from '../cases/cases.service';
+import { SmsService } from '../sms/sms.service';
 import {
   TwilioStartMessage,
   TwilioMediaMessage,
@@ -53,6 +54,7 @@ export class AudioStreamGateway
     private readonly audioConversion: AudioConversionService,
     private readonly callersService: CallersService,
     private readonly casesService: CasesService,
+    private readonly smsService: SmsService,
   ) {}
 
   handleConnection(client: WebSocket) {
@@ -182,7 +184,7 @@ export class AudioStreamGateway
       // --- Phase 2: Persist caller and case ---
       const caller = await this.callersService.findOrCreate(callerPhone);
 
-      await this.casesService.createFromAi({
+      const newCase = await this.casesService.createFromAi({
         caller,
         callSid,
         transcript: aiResponse.transcript,
@@ -191,7 +193,16 @@ export class AudioStreamGateway
         aiAudioUrl: aiResponse.audioFile.url,
       });
 
-      this.logger.log(`Case created for call ${callSid}`);
+      this.logger.log(`Case ${newCase.id} created for call ${callSid}`);
+
+      // Send SMS confirmation to the caller
+      if (callerPhone !== 'unknown') {
+        try {
+          await this.smsService.sendCaseConfirmation(callerPhone, newCase.id);
+        } catch {
+          this.logger.warn(`Failed to send SMS confirmation to ${callerPhone}`);
+        }
+      }
     } catch (error) {
       this.logger.error(
         `Failed to process audio for call ${callSid}`,

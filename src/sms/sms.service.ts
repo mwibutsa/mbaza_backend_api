@@ -20,16 +20,35 @@ export class SmsService {
   }
 
   async sendOtp(phoneNumber: string, code: string): Promise<void> {
+    await this.sendSms(
+      phoneNumber,
+      `Your Mbaza verification code is: ${code}. It expires in 5 minutes.`,
+    );
+    this.logger.log(`OTP sent to ${phoneNumber}`);
+  }
+
+  async sendCaseConfirmation(
+    phoneNumber: string,
+    caseId: string,
+  ): Promise<void> {
+    await this.sendSms(
+      phoneNumber,
+      `Mbaza: Your inquiry has been received and registered (Ref: ${caseId.slice(0, 8).toUpperCase()}). ` +
+        `You can track your case status anytime. Thank you for contacting us.`,
+    );
+    this.logger.log(`Case confirmation sent to ${phoneNumber}`);
+  }
+
+  private async sendSms(phoneNumber: string, body: string): Promise<void> {
     try {
       await this.twilioClient.messages.create({
-        body: `Your Mbaza verification code is: ${code}. It expires in 5 minutes.`,
+        body,
         from: this.fromNumber,
         to: phoneNumber,
       });
-      this.logger.log(`OTP sent to ${phoneNumber}`);
     } catch (error) {
       this.logger.error(
-        `Failed to send OTP to ${phoneNumber}`,
+        `Failed to send SMS to ${phoneNumber}`,
         error instanceof Error ? error.stack : error,
       );
       throw error;
