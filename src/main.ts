@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { WsAdapter } from '@nestjs/platform-ws';
-import helmet from 'helmet';
+// import helmet from 'helmet';
 
 import compression from 'compression';
 
@@ -13,7 +13,8 @@ async function bootstrap() {
   // Enable raw WebSocket adapter for Twilio Media Streams
   app.useWebSocketAdapter(new WsAdapter(app));
 
-  app.use(helmet());
+  app.enableCors();
+  // app.use(helmet());
   app.use(compression());
   app.setGlobalPrefix('api');
 

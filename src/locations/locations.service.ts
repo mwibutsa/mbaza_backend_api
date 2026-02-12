@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { EntityManager } from '@mikro-orm/postgresql';
+import { EntityManager, FilterQuery } from '@mikro-orm/postgresql';
 import { Location } from './location.entity';
 import { CreateLocationDto } from './dto/create-location.dto';
 
@@ -30,5 +30,21 @@ export class LocationsService {
 
   async findByDistrict(district: string): Promise<Location[]> {
     return this.em.find(Location, { district });
+  }
+
+  async findMatch(
+    district?: string,
+    sector?: string,
+    cell?: string,
+    village?: string,
+  ): Promise<Location | null> {
+    if (!district) return null;
+
+    const where: FilterQuery<Location> = { district };
+    if (sector) where.sector = sector;
+    if (cell) where.cell = cell;
+    if (village) where.village = village;
+
+    return this.em.findOne(Location, where);
   }
 }

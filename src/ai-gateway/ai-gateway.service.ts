@@ -79,6 +79,15 @@ export class AiGatewayService implements OnModuleInit {
       speaker_wav: speakerWav,
     });
 
+    // Logging the raw response data as requested
+    console.log('--- RAW GRADIO API RESPONSE ---');
+    console.log(JSON.stringify(result.data, null, 2));
+    console.log('-------------------------------');
+
+    // The result.data structure matches the description provided:
+    // entry 0: output audio metadata
+    // entry 1: transcript (User: ... AI: ...)
+    // entry 2: categories array
     const data = result.data as [
       {
         path: string;

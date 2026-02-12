@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { VoiceModule } from './voice/voice.module';
 import { AiGatewayModule } from './ai-gateway/ai-gateway.module';
+import { AiServicesModule } from './ai-services/ai-services.module';
 import { AuthModule } from './auth/auth.module';
 import { CallersModule } from './callers/callers.module';
 import { LocationsModule } from './locations/locations.module';
@@ -14,11 +15,14 @@ import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { StatisticsModule } from './statistics/statistics.module';
 import { SmsModule } from './sms/sms.module';
 
+import config from './mikro-orm.config';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    MikroOrmModule.forRoot(),
+    MikroOrmModule.forRoot(config),
     AiGatewayModule,
+    AiServicesModule,
     VoiceModule,
     AuthModule,
     CallersModule,

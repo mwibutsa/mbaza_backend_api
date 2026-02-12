@@ -4,6 +4,7 @@ import { Case } from './case.entity';
 import { Caller } from '../callers/caller.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { LocationsService } from '../locations/locations.service';
+import { Location } from '../locations/location.entity';
 import {
   AuditAction,
   ActorType,
@@ -14,12 +15,26 @@ import {
 import { CaseFilterDto } from './dto/case-filter.dto';
 import { AdminUser } from '../admin-users/admin-user.entity';
 
-interface CreateFromAiParams {
+export interface CreateFromAiParams {
   caller: Caller;
   callSid: string;
   transcript: string;
+  name?: string;
   categories: string[];
   description: string;
+  location?: {
+    district?: string;
+    sector?: string;
+    cell?: string;
+    village?: string;
+  };
+  issueLocation?: {
+    district?: string;
+    sector?: string;
+    cell?: string;
+    village?: string;
+  };
+  urgency?: CaseUrgency;
   aiAudioUrl?: string;
 }
 
@@ -44,32 +59,73 @@ export class CasesService {
       return enumValue ?? AiCategory.OTHER;
     });
 
-    const caseEntity = this.em.create(Case, {
-      caller: params.caller,
-      callSid: params.callSid,
-      transcript: params.transcript,
-      description: params.description,
-      categories: mappedCategories,
-      aiAudioUrl: params.aiAudioUrl,
-      status: CaseStatus.OPEN,
-      urgency: CaseUrgency.MEDIUM,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // 1. Resolve Case Location (Issue Location)
+    let caseLocation: Location | null = null;
+    if (params.issueLocation?.district) {
+      caseLocation = await this.locationsService.findMatch(
+        params.issueLocation.district,
+        params.issueLocation.sector,
+        params.issueLocation.cell,
+        params.issueLocation.village,
+      );
+    }
+
+    // 2. Update Caller Info (Residence & Name)
+    let callerUpdated = false;
+    if (params.location?.district) {
+      params.caller.district = params.location.district;
+      if (params.location.sector) params.caller.sector = params.location.sector;
+      callerUpdated = true;
+    }
+    if (params.name) {
+      params.caller.name = params.name;
+      callerUpdated = true;
+    }
+
+    if (callerUpdated) {
+      await this.em.persist(params.caller).flush();
+    }
+
+    // 3. Find or Create Case by callSid
+    let caseEntity = await this.em.findOne(Case, { callSid: params.callSid });
+
+    if (caseEntity) {
+      this.logger.log(`Updating existing case for call ${params.callSid}`);
+      caseEntity.transcript = params.transcript;
+      caseEntity.description = params.description;
+      caseEntity.categories = mappedCategories;
+      caseEntity.location = caseLocation ?? caseEntity.location;
+      caseEntity.urgency = params.urgency ?? caseEntity.urgency;
+      caseEntity.updatedAt = new Date();
+    } else {
+      this.logger.log(`Creating new case for call ${params.callSid}`);
+      caseEntity = this.em.create(Case, {
+        caller: params.caller,
+        callSid: params.callSid,
+        transcript: params.transcript,
+        description: params.description,
+        categories: mappedCategories,
+        aiAudioUrl: params.aiAudioUrl,
+        location: caseLocation,
+        status: CaseStatus.OPEN,
+        urgency: params.urgency ?? CaseUrgency.MEDIUM,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
 
     await this.em.persist(caseEntity).flush();
 
     await this.auditLogsService.create(
       caseEntity,
-      AuditAction.CASE_CREATED,
+      caseEntity.createdAt === caseEntity.updatedAt
+        ? AuditAction.CASE_CREATED
+        : AuditAction.NOTE_ADDED,
       ActorType.AI,
       undefined,
-      `Case created from call ${params.callSid}`,
+      `Case processed/updated from call ${params.callSid}`,
     );
 
-    this.logger.log(
-      `Case ${caseEntity.id} created from call ${params.callSid}`,
-    );
     return caseEntity;
   }
 

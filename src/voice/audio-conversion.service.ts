@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { spawn } from 'child_process';
 
 /**
  * Converts raw mulaw audio from Twilio Media Streams into WAV format
@@ -74,17 +75,124 @@ export class AudioConversionService {
   }
 
   /**
-   * Combine multiple Base64-encoded Twilio media chunks into a single WAV buffer.
+   * Combine multiple Base64-encoded Twilio media chunks and convert to a standard WAV buffer (PCM 16-bit).
+   * We use ffmpeg to ensure the format is standard and compatible with Gemini.
    */
-  chunksToWav(base64Chunks: Buffer[]): Buffer {
-    const totalSize = base64Chunks.reduce(
-      (sum, chunk) => sum + chunk.length,
-      0,
-    );
-    const combined = Buffer.concat(base64Chunks, totalSize);
-    this.logger.log(
-      `Combining ${base64Chunks.length} chunks (${totalSize} bytes) into WAV`,
-    );
-    return this.mulawToWav(combined);
+  async chunksToWav(chunks: Buffer[]): Promise<Buffer> {
+    const rawMulaw = Buffer.concat(chunks);
+
+    return new Promise((resolve, reject) => {
+      // -f mulaw: force input format to mulaw
+      // -ar 8000: input sample rate 8k
+      // -ac 1: input channels 1
+      // -i pipe:0: read from stdin
+      // Output: -f wav (defaults to pcm_s16le), pipe:1
+      const args = [
+        '-f',
+        'mulaw',
+        '-ar',
+        '8000',
+        '-ac',
+        '1',
+        '-i',
+        'pipe:0',
+        '-f',
+        'wav',
+        'pipe:1',
+      ];
+
+      const ffmpeg = spawn('ffmpeg', args);
+      const outChunks: Buffer[] = [];
+
+      ffmpeg.stdout.on('data', (chunk: Buffer) => outChunks.push(chunk));
+      ffmpeg.stderr.on('data', (data: Buffer) => {
+        this.logger.debug(`ffmpeg (mulawToWav) stderr: ${data.toString()}`);
+      });
+
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          resolve(Buffer.concat(outChunks));
+        } else {
+          reject(new Error(`FFmpeg (mulawToWav) exited with code ${code}`));
+        }
+      });
+
+      ffmpeg.on('error', (err) => reject(err));
+
+      if (ffmpeg.stdin) {
+        ffmpeg.stdin.write(rawMulaw);
+        ffmpeg.stdin.end();
+      } else {
+        reject(new Error('Could not open ffmpeg stdin'));
+      }
+    });
+  }
+
+  /**
+   * Convert MP3/WAV buffer from TTS to Mulaw 8kHz using ffmpeg (spawn).
+   */
+  async mp3ToMulaw(inputBuffer: Buffer): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      // Spawn ffmpeg process
+      // Input from pipe:0 (stdin), Output to pipe:1 (stdout)
+      // -f mulaw: force output format to mulaw (raw headerless)
+      // -acodec pcm_mulaw: allow specific codec selection if needed, but -f mulaw usually implies pcm_mulaw
+      // -ar 8000: sample rate 8000Hz
+      // -ac 1: mono
+      const args = [
+        '-i',
+        'pipe:0',
+        '-f',
+        'mulaw',
+        '-acodec',
+        'pcm_mulaw',
+        '-ar',
+        '8000',
+        '-ac',
+        '1',
+        'pipe:1',
+      ];
+
+      const ffmpeg = spawn('ffmpeg', args);
+      const chunks: Buffer[] = [];
+
+      // Collect stdout
+      ffmpeg.stdout.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      // Handle stderr (optional logging)
+      ffmpeg.stderr.on('data', (data: Buffer) => {
+        this.logger.debug(`ffmpeg stderr: ${data.toString()}`);
+      });
+
+      // Handle process exit
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          const result = Buffer.concat(chunks);
+          this.logger.debug(
+            `Converted MP3 to Mulaw (spawn): ${inputBuffer.length} -> ${result.length} bytes`,
+          );
+          resolve(result);
+        } else {
+          this.logger.error(`FFmpeg process exited with code ${code}`);
+          reject(new Error(`FFmpeg process exited with code ${code}`));
+        }
+      });
+
+      // Handle process errors (e.g., spawn failed)
+      ffmpeg.on('error', (err) => {
+        this.logger.error('FFmpeg spawn error', err);
+        reject(err);
+      });
+
+      // Write input buffer to stdin
+      if (ffmpeg.stdin) {
+        ffmpeg.stdin.write(inputBuffer);
+        ffmpeg.stdin.end();
+      } else {
+        reject(new Error('Could not open ffmpeg stdin'));
+      }
+    });
   }
 }

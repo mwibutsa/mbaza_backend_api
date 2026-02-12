@@ -45,28 +45,28 @@ export class VoiceController {
     const body = req.body as TwilioCallBody;
     const callSid = body?.CallSid ?? 'unknown';
     const from = body?.From ?? 'unknown';
+    console.log(
+      `[TRACE] Incoming call webhook received: From=${from}, CallSid=${callSid}`,
+    );
     this.logger.log(`Incoming call from ${from} (CallSid: ${callSid})`);
 
-    const baseUrl = this.configService.getOrThrow<string>('BASE_URL');
+    const baseUrl = this.configService
+      .getOrThrow<string>('BASE_URL')
+      .replace(/\/$/, '');
     // Convert http(s):// to ws(s)://
     const wsUrl = baseUrl.replace(/^http/, 'ws') + '/audio-stream';
+    console.log(`[TRACE] Generated Media Stream URL: ${wsUrl}`);
 
     const twiml = new Twilio.twiml.VoiceResponse();
-
-    // Greet the citizen in Kinyarwanda
-    twiml.say(
-      { language: 'en' as Parameters<typeof twiml.say>[0]['language'] },
-      'Muraho, ikaze kuri Mbaza. Tuvugishe ikibazo cyawe.',
-    );
-
-    // Pause briefly before starting the stream
-    twiml.pause({ length: 1 });
 
     // Open a Media Stream to our WebSocket gateway
     const connect = twiml.connect();
     const stream = connect.stream({ url: wsUrl });
     stream.parameter({ name: 'callerPhone', value: from });
     stream.parameter({ name: 'callSid', value: callSid });
+
+    // Keep the call alive for 120 seconds while the stream is active
+    twiml.pause({ length: 120 });
 
     this.logger.log(`TwiML response generated, streaming to ${wsUrl}`);
 
