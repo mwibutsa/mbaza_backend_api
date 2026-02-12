@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import { join } from 'path';
 import {
   WebSocketGateway,
   OnGatewayConnection,
@@ -126,11 +128,11 @@ export class AudioStreamGateway
     };
     this.activeCalls.set(client, state);
 
-    // Send initial English greeting (Non-Interactive)
+    // Send initial interactive greeting
     try {
-      this.logger.log('Sending initial greeting for non-interactive flow...');
+      this.logger.log('Sending initial greeting...');
       const greetingText =
-        'Hello, thank you for calling Mbaza. Please state your name, residence, and the issue you are reporting, then hang up when you are finished.';
+        'Muraho, murakoze guhamagara kuri Mbaza. Ni gute twabafasha uyu munsi?';
       const mp3Audio = await this.ttsService.generateAudio(greetingText);
       const mulawAudio = await this.audioConversion.mp3ToMulaw(mp3Audio);
       this.sendAudio(client, streamSid, mulawAudio);
@@ -178,12 +180,21 @@ export class AudioStreamGateway
   ) {
     state.isProcessing = true;
     try {
-      const fullAudioMulaw = Buffer.concat(state.audioChunks);
-      const wavAudio = await this.audioConversion.chunksToWav([fullAudioMulaw]);
+      // Send "ah okeeey.." acknowledgment immediately to improve interactive feel
+      try {
+        const ackText = 'Ah okeeey..';
+        const ackMp3 = await this.ttsService.generateAudio(ackText);
+        const ackMulaw = await this.audioConversion.mp3ToMulaw(ackMp3);
+        this.sendAudio(client, state.streamSid, ackMulaw);
+      } catch (ackError) {
+        this.logger.error('Failed to send acknowledgment audio', ackError);
+      }
 
       this.logger.log(
-        `[AI] Processing live stream (${fullAudioMulaw.length} bytes)...`,
+        `[AI] Processing live stream (${state.audioChunks.length} chunks)...`,
       );
+      const fullAudioMulaw = Buffer.concat(state.audioChunks);
+      const wavAudio = await this.audioConversion.chunksToWav([fullAudioMulaw]);
       const aiResponse = await this.geminiService.processTurn(
         wavAudio,
         state.extractedData,
@@ -248,6 +259,12 @@ export class AudioStreamGateway
             `Final AI Extraction: ${JSON.stringify(aiResponse.extractedData)}`,
           );
 
+          // Save the full call recording
+          const fileName = `${state.callSid}.wav`;
+          const filePath = join(process.cwd(), 'uploads', 'audio', fileName);
+          await fs.writeFile(filePath, wavAudio);
+          const audioUrl = `/uploads/audio/${fileName}`;
+
           const caller = await this.callersService.findOrCreate(
             state.callerPhone,
           );
@@ -269,7 +286,7 @@ export class AudioStreamGateway
               state.extractedData.issueLocation,
             urgency:
               aiResponse.extractedData.urgency ?? state.extractedData.urgency,
-            aiAudioUrl: 'full-recording',
+            aiAudioUrl: audioUrl,
           });
 
           await this.smsService.sendCaseConfirmation(

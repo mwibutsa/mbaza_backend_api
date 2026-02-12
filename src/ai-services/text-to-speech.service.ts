@@ -88,7 +88,7 @@ export class TextToSpeechService {
     }
 
     this.logger.log('Generating "Thinking" audio cache...');
-    const buffer = await this.generateAudio('Please wait, I am thinking...');
+    const buffer = await this.generateAudio('Ah okeeey..');
     fs.writeFileSync(this.thinkingCachePath, buffer);
     return buffer;
   }
